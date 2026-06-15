@@ -1,0 +1,1136 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# BAGIAN 1 — BASELINE CNN\n"
+      ],
+      "metadata": {
+        "id": "ig-3SgPur9h_"
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 1. Import Library"
+      ],
+      "metadata": {
+        "id": "44u_ke1msJKh"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import pandas as pd\n",
+        "import numpy as np\n",
+        "import matplotlib.pyplot as plt\n",
+        "import seaborn as sns\n",
+        "import os\n",
+        "\n",
+        "from sklearn.model_selection import GroupShuffleSplit\n",
+        "from sklearn.metrics import (\n",
+        "    accuracy_score,\n",
+        "    precision_score,\n",
+        "    recall_score,\n",
+        "    f1_score,\n",
+        "    confusion_matrix,\n",
+        "    roc_auc_score,\n",
+        "    roc_curve # Added roc_curve\n",
+        ")\n",
+        "\n",
+        "import tensorflow as tf\n",
+        "from tensorflow.keras.preprocessing.image import ImageDataGenerator\n",
+        "from tensorflow.keras import layers, models"
+      ],
+      "metadata": {
+        "id": "BqczpX_oDQV0"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 2. Upload dan Ekstraksi Dataset"
+      ],
+      "metadata": {
+        "id": "HYvdt19Ntfdx"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "from google.colab import files\n",
+        "uploaded = files.upload()"
+      ],
+      "metadata": {
+        "id": "SyUmYgqfBuDE"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 3. Membaca Dataset dan Label"
+      ],
+      "metadata": {
+        "id": "x76dWxqdsSRA"
+      }
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "13425eaa"
+      },
+      "source": [
+        "import zipfile\n",
+        "\n",
+        "with zipfile.ZipFile('/content/dataset.zip', 'r') as zip_ref:\n",
+        "    zip_ref.extractall('/content/')\n",
+        "\n",
+        "print('Dataset extracted successfully to /content/')\n"
+      ],
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import pandas as pd\n",
+        "\n",
+        "df = pd.read_csv(\n",
+        "'/content/hillel-yaffe-glaucoma-dataset-hygd-a-gold-standard-annotated-fundus-dataset-for-glaucoma-detection-1.0.0/Labels.csv'\n",
+        ")\n",
+        "\n",
+        "df.head()"
+      ],
+      "metadata": {
+        "id": "6gf3LBdkDVWO"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "image_folder = '/content/hillel-yaffe-glaucoma-dataset-hygd-a-gold-standard-annotated-fundus-dataset-for-glaucoma-detection-1.0.0/Images/'"
+      ],
+      "metadata": {
+        "id": "E-HRjh0RM403"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 4. Membuat Path Gambar dan Pemeriksaan Data"
+      ],
+      "metadata": {
+        "id": "45H2UjC8tkpG"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df['filepath'] = image_folder + df['Image Name']"
+      ],
+      "metadata": {
+        "id": "urvKusO4M8cv"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import os\n",
+        "\n",
+        "print(df['filepath'][0])\n",
+        "\n",
+        "print(os.path.exists(df['filepath'][0]))"
+      ],
+      "metadata": {
+        "id": "fc4ksr5mM-3Q"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 5. Eksplorasi Dataset\n",
+        "# Distribusi Label dan Quality Score"
+      ],
+      "metadata": {
+        "id": "QTtgUInfuWO2"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "print(df.shape)\n",
+        "\n",
+        "print(df.columns)\n",
+        "\n",
+        "print(df['Label'].value_counts())\n",
+        "\n",
+        "print(\"Jumlah pasien unik:\")\n",
+        "print(df['Patient'].nunique())"
+      ],
+      "metadata": {
+        "id": "EKqBiRa1ByFy"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 6. Konversi Label ke Target Biner"
+      ],
+      "metadata": {
+        "id": "8Rk2G521tt2c"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df['Target'] = df['Label'].map({\n",
+        "    'GON+':1,\n",
+        "    'GON-':0\n",
+        "})\n",
+        "\n",
+        "df.head()"
+      ],
+      "metadata": {
+        "id": "Yto0uOg8DlsU"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "image_folder = \"/content/images/\"\n",
+        "\n",
+        "df['filepath'] = image_folder + df['Image Name']\n",
+        "\n",
+        "df.head()"
+      ],
+      "metadata": {
+        "id": "TSbIKaPUDu4-"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 7. VISUALISASI DISTRIBUSI LABEL"
+      ],
+      "metadata": {
+        "id": "HnlxK0YsygaR"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "sns.countplot(data=df, x='Label')\n",
+        "plt.show()"
+      ],
+      "metadata": {
+        "id": "I9rMYYciD5Wq"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 8. VISUALISASI QUALITY SCORE"
+      ],
+      "metadata": {
+        "id": "_GLSCDEWynim"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "sns.histplot(df['Quality Score'], bins=10)\n",
+        "plt.show()"
+      ],
+      "metadata": {
+        "id": "EPK1sWd7D69R"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 9. Pembagian Data Train, Validation, dan Test"
+      ],
+      "metadata": {
+        "id": "EmWRN5bAuZJ0"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "gss = GroupShuffleSplit(\n",
+        "    n_splits=1,\n",
+        "    test_size=0.3,\n",
+        "    random_state=42\n",
+        ")\n",
+        "\n",
+        "train_idx, temp_idx = next(\n",
+        "    gss.split(\n",
+        "        df,\n",
+        "        groups=df['Patient']\n",
+        "    )\n",
+        ")\n",
+        "\n",
+        "train_df = df.iloc[train_idx]\n",
+        "temp_df = df.iloc[temp_idx]\n",
+        "\n",
+        "print(\"Train :\", len(train_df))\n",
+        "print(\"Temp :\", len(temp_df))"
+      ],
+      "metadata": {
+        "id": "Id4L7TfND_C3"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "IMG_SIZE = 224\n",
+        "BATCH_SIZE = 32\n",
+        "\n",
+        "\n",
+        "gss_val_test = GroupShuffleSplit(\n",
+        "    n_splits=1,\n",
+        "    test_size=0.5, # 50% for test, 50% for validation from temp_df\n",
+        "    random_state=42\n",
+        ")\n",
+        "\n",
+        "val_idx, test_idx = next(\n",
+        "    gss_val_test.split(\n",
+        "        temp_df,\n",
+        "        groups=temp_df['Patient']\n",
+        "    )\n",
+        ")\n",
+        "\n",
+        "val_df = temp_df.iloc[val_idx]\n",
+        "test_df = temp_df.iloc[test_idx]\n",
+        "\n",
+        "train_gen = ImageDataGenerator(\n",
+        "    rescale=1./255,\n",
+        "    rotation_range=20,\n",
+        "    horizontal_flip=True\n",
+        ")\n",
+        "\n",
+        "val_gen = ImageDataGenerator(\n",
+        "    rescale=1./255\n",
+        ")\n",
+        "print(\"Train :\", len(train_df))\n",
+        "print(\"Validation :\", len(val_df))\n",
+        "print(\"Test :\", len(test_df))"
+      ],
+      "metadata": {
+        "id": "uQb0-4mzEFSw"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 10. DATA AUGMENTATION"
+      ],
+      "metadata": {
+        "id": "nkazHbHzy5nJ"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "IMG_SIZE = 224\n",
+        "BATCH_SIZE = 32\n",
+        "\n",
+        "train_gen = ImageDataGenerator(\n",
+        "    rescale=1./255,\n",
+        "    rotation_range=20,\n",
+        "    horizontal_flip=True\n",
+        ")\n",
+        "\n",
+        "val_gen = ImageDataGenerator(\n",
+        "    rescale=1./255\n",
+        ")"
+      ],
+      "metadata": {
+        "id": "ZKlNgLjVEnsG"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 11. Membangun Arsitektur Baseline CNN"
+      ],
+      "metadata": {
+        "id": "H9dV4PMBusQb"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "model = models.Sequential([\n",
+        "\n",
+        "    layers.Conv2D(\n",
+        "        32,\n",
+        "        (3,3),\n",
+        "        activation='relu',\n",
+        "        input_shape=(224,224,3)\n",
+        "    ),\n",
+        "\n",
+        "    layers.MaxPooling2D(),\n",
+        "\n",
+        "    layers.Conv2D(\n",
+        "        64,\n",
+        "        (3,3),\n",
+        "        activation='relu'\n",
+        "    ),\n",
+        "\n",
+        "    layers.MaxPooling2D(),\n",
+        "\n",
+        "    layers.Conv2D(\n",
+        "        128,\n",
+        "        (3,3),\n",
+        "        activation='relu'\n",
+        "    ),\n",
+        "\n",
+        "    layers.MaxPooling2D(),\n",
+        "\n",
+        "    layers.Flatten(),\n",
+        "\n",
+        "    layers.Dense(\n",
+        "        128,\n",
+        "        activation='relu'\n",
+        "    ),\n",
+        "\n",
+        "    layers.Dropout(0.5),\n",
+        "\n",
+        "    layers.Dense(\n",
+        "        1,\n",
+        "        activation='sigmoid'\n",
+        "    )\n",
+        "])\n",
+        "\n",
+        "model.summary()"
+      ],
+      "metadata": {
+        "id": "_-dawmtdE96C"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 12. Kompilasi Model Baseline CNN"
+      ],
+      "metadata": {
+        "id": "_D0RXstDu5ah"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "model.compile(\n",
+        "optimizer='adam',\n",
+        "loss='binary_crossentropy',\n",
+        "metrics=['accuracy']\n",
+        ")"
+      ],
+      "metadata": {
+        "id": "-DPahp51Qgag"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "correct_image_folder = '/content/hillel-yaffe-glaucoma-dataset-hygd-a-gold-standard-annotated-fundus-dataset-for-glaucoma-detection-1.0.0/Images/'\n",
+        "\n",
+        "df['filepath'] = correct_image_folder + df['Image Name']\n",
+        "\n",
+        "\n",
+        "gss = GroupShuffleSplit(\n",
+        "    n_splits=1,\n",
+        "    test_size=0.3,\n",
+        "    random_state=42\n",
+        ")\n",
+        "\n",
+        "train_idx, temp_idx = next(\n",
+        "    gss.split(\n",
+        "        df,\n",
+        "        groups=df['Patient']\n",
+        "    )\n",
+        ")\n",
+        "\n",
+        "train_df = df.iloc[train_idx]\n",
+        "temp_df = df.iloc[temp_idx]\n",
+        "\n",
+        "gss_val_test = GroupShuffleSplit(\n",
+        "    n_splits=1,\n",
+        "    test_size=0.5, # 50% for test, 50% for validation from temp_df\n",
+        "    random_state=42\n",
+        ")\n",
+        "\n",
+        "val_idx, test_idx = next(\n",
+        "    gss_val_test.split(\n",
+        "        temp_df,\n",
+        "        groups=temp_df['Patient']\n",
+        "    )\n",
+        ")\n",
+        "\n",
+        "val_df = temp_df.iloc[val_idx]\n",
+        "test_df = temp_df.iloc[test_idx]\n",
+        "\n",
+        "\n",
+        "train_gen = ImageDataGenerator(\n",
+        "    rescale=1./255,\n",
+        "    rotation_range=20,\n",
+        "    horizontal_flip=True\n",
+        ")\n",
+        "\n",
+        "val_gen = ImageDataGenerator(\n",
+        "    rescale=1./255\n",
+        ")\n",
+        "\n",
+        "\n",
+        "train_generator = train_gen.flow_from_dataframe(\n",
+        "    train_df,\n",
+        "    x_col='filepath',\n",
+        "    y_col='Label',\n",
+        "    class_mode='binary',\n",
+        "    target_size=(224,224),\n",
+        "    batch_size=32\n",
+        ")\n",
+        "\n",
+        "val_generator = val_gen.flow_from_dataframe(\n",
+        "    val_df,\n",
+        "    x_col='filepath',\n",
+        "    y_col='Label',\n",
+        "    class_mode='binary',\n",
+        "    target_size=(224,224),\n",
+        "    batch_size=32\n",
+        ")\n",
+        "\n",
+        "history = model.fit(\n",
+        "    train_generator,\n",
+        "    validation_data=val_generator,\n",
+        "    epochs=10\n",
+        ")"
+      ],
+      "metadata": {
+        "id": "HsHvuQayQwS7"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 13. Grafik Akurasi Model"
+      ],
+      "metadata": {
+        "id": "ZazJ0mbxv08u"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "plt.plot(history.history['accuracy'])\n",
+        "plt.plot(history.history['val_accuracy'])\n",
+        "plt.legend(['Train','Validation'])\n",
+        "plt.show()"
+      ],
+      "metadata": {
+        "id": "IVtuX-05ROk5"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 14. EVALUASI BASELINE CNN"
+      ],
+      "metadata": {
+        "id": "XGxCXXq4u_N4"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Create test_generator\n",
+        "test_generator = val_gen.flow_from_dataframe(\n",
+        "    test_df,\n",
+        "    x_col='filepath',\n",
+        "    y_col='Label',\n",
+        "    class_mode='binary',\n",
+        "    target_size=(224, 224),\n",
+        "    batch_size=32,\n",
+        "    shuffle=False\n",
+        ")\n",
+        "\n",
+        "pred_prob = model.predict(test_generator)\n",
+        "\n",
+        "pred = (pred_prob > 0.5).astype(int)\n",
+        "\n",
+        "y_true = test_generator.classes"
+      ],
+      "metadata": {
+        "id": "P-Ma9I2FRXaP"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 15. METRIK BASELINE CNN"
+      ],
+      "metadata": {
+        "id": "18GIaXXUvdA3"
+      }
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "e9363dbd"
+      },
+      "source": [
+        "print('Accuracy:', accuracy_score(y_true, pred))\n",
+        "print('Precision:', precision_score(y_true, pred))\n",
+        "print('Recall:', recall_score(y_true, pred))\n",
+        "print('F1-score:', f1_score(y_true, pred))\n",
+        "print('ROC AUC:', roc_auc_score(y_true, pred_prob))"
+      ],
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 16. CONFUSION MATRIX BASELINE CNN"
+      ],
+      "metadata": {
+        "id": "gKsNQ2ffzpP7"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "cm = confusion_matrix(y_true, pred)\n",
+        "plt.figure(figsize=(6, 4))\n",
+        "sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')\n",
+        "plt.title('Confusion Matrix')\n",
+        "plt.xlabel('Predicted')\n",
+        "plt.ylabel('True')\n",
+        "plt.show()"
+      ],
+      "metadata": {
+        "id": "ADYH2Rkwzpma"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 17. ROC CURVE BASELINE CNN"
+      ],
+      "metadata": {
+        "id": "KOXiV8kGvsx2"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "fpr,tpr,_ = roc_curve(\n",
+        "y_true,\n",
+        "pred_prob\n",
+        ")\n",
+        "\n",
+        "plt.plot(\n",
+        "fpr,\n",
+        "tpr\n",
+        ")\n",
+        "\n",
+        "plt.xlabel(\n",
+        "'False Positive Rate'\n",
+        ")\n",
+        "\n",
+        "plt.ylabel(\n",
+        "'True Positive Rate'\n",
+        ")\n",
+        "\n",
+        "plt.show()"
+      ],
+      "metadata": {
+        "id": "mG2RsOY9qt_x"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# BAGIAN 2 — QUALITY-AWARE CNN"
+      ],
+      "metadata": {
+        "id": "-N6O2Q8-v9k4"
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 18. Seleksi Data Berdasarkan Quality Score"
+      ],
+      "metadata": {
+        "id": "sD5sUd3gwJIF"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "quality_df = df[df['Quality Score'] > 3]\n",
+        "\n",
+        "print(len(df))\n",
+        "print(len(quality_df))"
+      ],
+      "metadata": {
+        "id": "N_zgV9rN4AmZ"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 19. Pembagian Data Quality-Aware"
+      ],
+      "metadata": {
+        "id": "ncYhghLswf78"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "gss = GroupShuffleSplit(\n",
+        "    n_splits=1,\n",
+        "    test_size=0.3,\n",
+        "    random_state=42\n",
+        ")\n",
+        "\n",
+        "train_idx_q, temp_idx_q = next(\n",
+        "    gss.split(\n",
+        "        quality_df,\n",
+        "        groups=quality_df['Patient']\n",
+        "    )\n",
+        ")\n",
+        "\n",
+        "train_df_q = quality_df.iloc[train_idx_q]\n",
+        "temp_df_q = quality_df.iloc[temp_idx_q]"
+      ],
+      "metadata": {
+        "id": "uEw_evcY5Czs"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 20. VALIDATION DAN TEST QUALITY-AWARE"
+      ],
+      "metadata": {
+        "id": "P7nKzmRZwnT6"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "gss2 = GroupShuffleSplit(\n",
+        "    n_splits=1,\n",
+        "    test_size=0.5,\n",
+        "    random_state=42\n",
+        ")\n",
+        "\n",
+        "val_idx_q, test_idx_q = next(\n",
+        "    gss2.split(\n",
+        "        temp_df_q,\n",
+        "        groups=temp_df_q['Patient']\n",
+        "    )\n",
+        ")\n",
+        "\n",
+        "val_df_q = temp_df_q.iloc[val_idx_q]\n",
+        "test_df_q = temp_df_q.iloc[test_idx_q]"
+      ],
+      "metadata": {
+        "id": "8NsgPH_r5EJx"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 21. GENERATOR QUALITY-AWARE"
+      ],
+      "metadata": {
+        "id": "fRC5QX080GKA"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "train_gen_q = ImageDataGenerator(\n",
+        "    rescale=1./255,\n",
+        "    rotation_range=20,\n",
+        "    horizontal_flip=True\n",
+        ")\n",
+        "\n",
+        "val_gen_q = ImageDataGenerator(\n",
+        "    rescale=1./255\n",
+        ")"
+      ],
+      "metadata": {
+        "id": "6J7lGWG05SfK"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 22. Membuat Generator Data Quality-Aware"
+      ],
+      "metadata": {
+        "id": "XIA-oUR8wrTW"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "train_generator_q = train_gen_q.flow_from_dataframe(\n",
+        "    train_df_q,\n",
+        "    x_col='filepath',\n",
+        "    y_col='Label',\n",
+        "    class_mode='binary',\n",
+        "    target_size=(224,224),\n",
+        "    batch_size=32\n",
+        ")\n",
+        "\n",
+        "val_generator_q = val_gen_q.flow_from_dataframe(\n",
+        "    val_df_q,\n",
+        "    x_col='filepath',\n",
+        "    y_col='Label',\n",
+        "    class_mode='binary',\n",
+        "    target_size=(224,224),\n",
+        "    batch_size=32\n",
+        ")\n",
+        "\n",
+        "test_generator_q = val_gen_q.flow_from_dataframe(\n",
+        "    test_df_q,\n",
+        "    x_col='filepath',\n",
+        "    y_col='Label',\n",
+        "    class_mode='binary',\n",
+        "    target_size=(224,224),\n",
+        "    batch_size=32,\n",
+        "    shuffle=False\n",
+        ")"
+      ],
+      "metadata": {
+        "id": "IiBoeh1s5VET"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 23. MEMBANGUN QUALITY-AWARE CNN"
+      ],
+      "metadata": {
+        "id": "y4LbLg1n0XUk"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "model_q = models.Sequential([\n",
+        "\n",
+        "layers.Conv2D(\n",
+        "32,\n",
+        "(3,3),\n",
+        "activation='relu',\n",
+        "input_shape=(224,224,3)\n",
+        "),\n",
+        "\n",
+        "layers.MaxPooling2D(),\n",
+        "\n",
+        "layers.Conv2D(\n",
+        "64,\n",
+        "(3,3),\n",
+        "activation='relu'\n",
+        "),\n",
+        "\n",
+        "layers.MaxPooling2D(),\n",
+        "\n",
+        "layers.Conv2D(\n",
+        "128,\n",
+        "(3,3),\n",
+        "activation='relu'\n",
+        "),\n",
+        "\n",
+        "layers.MaxPooling2D(),\n",
+        "\n",
+        "layers.Flatten(),\n",
+        "\n",
+        "layers.Dense(\n",
+        "128,\n",
+        "activation='relu'\n",
+        "),\n",
+        "\n",
+        "layers.Dropout(0.5),\n",
+        "\n",
+        "layers.Dense(\n",
+        "1,\n",
+        "activation='sigmoid'\n",
+        ")\n",
+        "\n",
+        "])"
+      ],
+      "metadata": {
+        "id": "LKy3krcv5YgT"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 24. KOMPILASI QUALITY-AWARE CNN"
+      ],
+      "metadata": {
+        "id": "ZnOv2OZKwxv5"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "model_q.compile(\n",
+        "optimizer='adam',\n",
+        "loss='binary_crossentropy',\n",
+        "metrics=['accuracy']\n",
+        ")"
+      ],
+      "metadata": {
+        "id": "hKhfMHe45bfs"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 25. TRAINING QUALITY-AWARE CNN"
+      ],
+      "metadata": {
+        "id": "DRv7hnEw0jdn"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "history_q = model_q.fit(\n",
+        "train_generator_q,\n",
+        "validation_data=val_generator_q,\n",
+        "epochs=10\n",
+        ")"
+      ],
+      "metadata": {
+        "id": "b4J8i6Za5gzx"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 26. EVALUASI QUALITY-AWARE CNN"
+      ],
+      "metadata": {
+        "id": "BaLCjuPdw4OG"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "pred_prob_q = model_q.predict(test_generator_q)\n",
+        "\n",
+        "pred_q = (pred_prob_q > 0.5).astype(int)\n",
+        "\n",
+        "y_true_q = test_generator_q.classes"
+      ],
+      "metadata": {
+        "id": "hsurhLoK5n2F"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 27. METRIK QUALITY-AWARE CNN"
+      ],
+      "metadata": {
+        "id": "lqD97wjCw7s6"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "print('accuary:',accuracy_score(y_true_q,pred_q))\n",
+        "\n",
+        "print('precision:',precision_score(y_true_q,pred_q))\n",
+        "\n",
+        "print('recall:',recall_score(y_true_q,pred_q))\n",
+        "\n",
+        "print('f1-score:',f1_score(y_true_q,pred_q))\n",
+        "\n",
+        "print('roc-auc:',roc_auc_score(y_true_q,pred_prob_q))"
+      ],
+      "metadata": {
+        "id": "Rj_20zS08QFX"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# 28. Confusion Matrix Quality-Aware CNN"
+      ],
+      "metadata": {
+        "id": "00-GyhzhxVGa"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "cm_q = confusion_matrix(\n",
+        "y_true_q,\n",
+        "pred_q\n",
+        ")\n",
+        "\n",
+        "sns.heatmap(\n",
+        "cm_q,\n",
+        "annot=True,\n",
+        "fmt='d'\n",
+        ")\n",
+        "\n",
+        "plt.show()"
+      ],
+      "metadata": {
+        "id": "kgh4GhS79VNL"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "#29. TABEL PERBANDINGAN"
+      ],
+      "metadata": {
+        "id": "kTpoWSuMhbNn"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Calculate baseline model metrics\n",
+        "acc_baseline = accuracy_score(y_true, pred)\n",
+        "prec_baseline = precision_score(y_true, pred)\n",
+        "recall_baseline = recall_score(y_true, pred)\n",
+        "f1_baseline = f1_score(y_true, pred)\n",
+        "\n",
+        "# Calculate quality-aware model metrics\n",
+        "acc_quality = accuracy_score(y_true_q, pred_q)\n",
+        "prec_quality = precision_score(y_true_q, pred_q)\n",
+        "recall_quality = recall_score(y_true_q, pred_q)\n",
+        "f1_quality = f1_score(y_true_q, pred_q)\n",
+        "\n",
+        "hasil = pd.DataFrame({\n",
+        "\n",
+        "'Model' : [\n",
+        "'Baseline CNN',\n",
+        "'Quality-Aware CNN'\n",
+        "],\n",
+        "\n",
+        "'Accuracy' : [\n",
+        "acc_baseline,\n",
+        "acc_quality\n",
+        "],\n",
+        "\n",
+        "'Precision' : [\n",
+        "prec_baseline,\n",
+        "prec_quality\n",
+        "],\n",
+        "\n",
+        "'Recall' : [\n",
+        "recall_baseline,\n",
+        "recall_quality\n",
+        "],\n",
+        "\n",
+        "'F1-score' : [\n",
+        "f1_baseline,\n",
+        "f1_quality\n",
+        "]\n",
+        "\n",
+        "})\n",
+        "\n",
+        "hasil"
+      ],
+      "metadata": {
+        "id": "LW_oYQgf9X7m"
+      },
+      "execution_count": null,
+      "outputs": []
+    }
+  ]
+}
